@@ -92,6 +92,9 @@ class FreeTrainingView(ft.Column):
         try:
             while True:
                 s=self.controller.refresh()
+                if s.notice and not self.controller.input_error:
+                    self.error.value=s.notice
+                    refresh(self.error)
                 self.action_timer.value='动作时长  '+duration(s.action_elapsed_ms)
                 self.set_timer.value='本组时长  '+duration(s.set_elapsed_ms)
                 self.daily_timer.value='本日累计训练  '+duration(s.daily_elapsed_ms)

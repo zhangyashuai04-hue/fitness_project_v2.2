@@ -14,3 +14,6 @@ if (!(Test-Path "$env:ANDROID_HOME\platform-tools\adb.exe")) { throw 'Android SD
 if (!(Test-Path "$env:JAVA_HOME\bin\java.exe")) { throw 'JDK 17 is missing' }
 
 New-Item -ItemType Directory -Force $env:FLET_CACHE_DIR, $env:PUB_CACHE, $env:GRADLE_USER_HOME, $env:TEMP | Out-Null
+
+# Gradle supports a read-only dependency cache alongside this project writable cache.
+$env:GRADLE_RO_DEP_CACHE = "D:/zys/myself/codex/fitness_project_v2.1/.cache/gradle/caches"

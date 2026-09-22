@@ -7,3 +7,4 @@ research/
 deliverables/
 __pycache__/
 *.egg-info/
+install.log

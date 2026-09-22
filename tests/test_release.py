@@ -21,3 +21,14 @@ def test_missing_python_dependency_rejected(tmp_path):
         archive.writestr('assets/sitepackages.zip',packages.getvalue())
         archive.writestr('lib/arm64-v8a/libpython3.12.so',b'')
     with pytest.raises(ValueError,match='certifi'):release.verify_dependencies(apk)
+
+
+@pytest.mark.parametrize('version',[42707,42708])
+def test_python_arm_upgrade_must_exceed_distributed_version(version):
+    with pytest.raises(ValueError):
+        release.validate_identity(release.PACKAGE,version,'same',42708,'same')
+
+@pytest.mark.parametrize('version',[44707,44708])
+def test_python_x64_upgrade_must_exceed_distributed_version(version):
+    with pytest.raises(ValueError):
+        release.validate_identity(release.PACKAGE,version,'same',44708,'same')

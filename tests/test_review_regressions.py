@@ -60,3 +60,14 @@ def test_cancel_after_lost_end_response_reconciles(free_service):
     c.cancel_confirmation()
     assert c.snapshot.status=='ended' and c.pending is None
     assert free_service.db.execute('SELECT COUNT(*) FROM training_set_results').fetchone()[0]==1
+
+
+def test_clock_warning_reaches_visible_timer_view(free_service,clock,monkeypatch):
+    import fitness.ui.free_training as ui
+    c=controller(free_service);view=FreeTrainingView(c)
+    clock.advance_ms(10000);free_service.get(c.snapshot.id);clock.advance_ms(-5000)
+    monkeypatch.setattr(ui,'refresh',lambda control:None)
+    async def stop_after_refresh(seconds):raise asyncio.CancelledError()
+    monkeypatch.setattr(ui.asyncio,'sleep',stop_after_refresh)
+    asyncio.run(view.tick())
+    assert '系统时间' in view.error.value
