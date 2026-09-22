@@ -36,3 +36,8 @@ class Snapshot:
     action_elapsed_ms: int = 0
     daily_elapsed_ms: int = 0
     can_inherit: bool = False
+
+    input_name: str | None = None
+    input_reps: str | None = None
+    input_weight: str | None = None
+    input_error: str | None = None

@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from uuid import uuid4
 from fitness.domain.models import Measurements
@@ -14,7 +14,8 @@ from fitness.services.free_training import FreeTrainingMixin
 
 class TrainingService(FreeTrainingMixin):
     def __init__(self, db, clock):
-        self.db, self.clock = db, clock
+        from fitness.domain.training_time import GuardedClock
+        self.db, self.clock = db, GuardedClock(clock)
 
     def _load(self, identity):
         row = self.db.execute('SELECT * FROM training_sessions WHERE id=?', (identity,)).fetchone()
@@ -28,10 +29,13 @@ class TrainingService(FreeTrainingMixin):
             runtime = adapt_legacy_session(row, [], self.clock.now_ms())
             revision = 0
             self.db.execute('INSERT INTO py_session_meta VALUES (?,?,?)', (identity, revision, json.dumps(runtime, ensure_ascii=False)))
+        self.clock.observe(runtime.get('last_observed_ms',0))
         return row, state, runtime, revision
 
     def _snapshot(self, row, state, runtime, revision):
         result = snapshot(row['id'], state, runtime, revision, self.clock.now_ms())
+        if self.clock.backward:
+            result=replace(result,notice='系统时间发生变化，计时已冻结至校时追平。')
         return self._free_snapshot(result,row,state,runtime)
 
     def get(self, session_id):
@@ -69,6 +73,7 @@ class TrainingService(FreeTrainingMixin):
 
     def _store(self, row, state, runtime, revision):
         revision += 1
+        runtime['last_observed_ms']=self.clock.now_ms()
         slot = self._slot(runtime) if runtime['current_slot_id'] else None
         state['exerciseIndex'] = slot['legacy_index'] if slot else len(state['exercises'])
         state['setIndex'] = runtime['set_index']
@@ -96,6 +101,8 @@ class TrainingService(FreeTrainingMixin):
                 from fitness.domain.free_training import validate_partial
                 validate_partial(measurements)
             # Empty and partial values are durable drafts; completion validates them.
+            runtime.pop('input_text',None)
+            runtime.pop('input_error',None)
             runtime['draft'] = measurement_dict(measurements)
             return self._store(row, state, runtime, revision)
 
@@ -170,6 +177,8 @@ class TrainingService(FreeTrainingMixin):
             runtime['set_index'] = 0 if previous is None else previous + 1
         else:
             runtime['set_index'] += 1
+        runtime.pop('input_text',None)
+        runtime.pop('input_error',None)
         runtime.update(phase='collecting', draft=measurement_dict(Measurements()), set_elapsed_ms=0,
                        set_started_ms=self.clock.now_ms() if state['status'] == 'running' else None, notice=None)
 
@@ -227,6 +236,8 @@ class TrainingService(FreeTrainingMixin):
                 if runtime.get('free'):
                     return self._snapshot(row,state,runtime,revision)
                 raise ValueError('本动作还没有上一组数据')
+            runtime.pop('input_text',None)
+            runtime.pop('input_error',None)
             runtime['draft'] = json.loads(previous[0])
             return self._store(row, state, runtime, revision)
 

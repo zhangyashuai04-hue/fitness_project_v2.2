@@ -2,7 +2,7 @@ param(
     [string]$ToolchainRoot = 'D:\zys\myself\codex\fitness_project\research\toolchains',
     [string]$SigningKeyStore = 'D:\zys\myself\codex\fitness_project\.worktrees\local-flow\app\android\app\pr-testing-public.jks',
     [string]$SigningAlias = 'pr',
-    [int]$BuildNumber = 40708
+    [int]$BuildNumber = 40709
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\toolchain.ps1" -ToolchainRoot $ToolchainRoot
@@ -18,6 +18,11 @@ try {
         $apk = "$projectRoot\app\build\apk\fitness-python-$abi.apk"
         & "$projectRoot\.venv\Scripts\python.exe" "$PSScriptRoot\verify-release.py" $apk 'D:\zys\myself\codex\fitness_project\.worktrees\local-flow\deliverables\fitness-local-training-arm64.apk' --build-tools "$env:ANDROID_HOME\build-tools\36.0.0" > "$projectRoot\research\release\identity-$abi.json"
         if ($LASTEXITCODE -ne 0) { throw "APK identity verification failed: $abi" }
+        $previous = "D:\zys\myself\codex\fitness_project_v2.1\app\build\apk\fitness-python-$abi.apk"
+        if (Test-Path -LiteralPath $previous) {
+            & "$projectRoot\.venv\Scripts\python.exe" "$PSScriptRoot\verify-release.py" $apk $previous --build-tools "$env:ANDROID_HOME\build-tools\36.0.0" > "$projectRoot\research\release\upgrade-$abi.json"
+            if ($LASTEXITCODE -ne 0) { throw "Python upgrade identity check failed: $abi" }
+        } else { throw "Previous Python APK unavailable: $abi" }
         Copy-Item -LiteralPath $apk -Destination "$projectRoot\deliverables\candidate\fitness-python-$abi.apk"
     }
 } finally { Pop-Location }

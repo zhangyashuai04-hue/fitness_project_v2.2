@@ -54,7 +54,7 @@ def test_midnight_and_no_write_on_refresh(free_service,clock):
     assert free_service.db.total_changes==changes
     clock.advance_ms(-5000)
     s=free_service.get(s.id)
-    assert s.set_elapsed_ms==0 and s.daily_elapsed_ms>=0 and s.notice
+    assert s.set_elapsed_ms==3000 and s.daily_elapsed_ms>=0 and s.notice
 
 
 def test_legacy_saved_choice_not_saved_again(free_service,clock):

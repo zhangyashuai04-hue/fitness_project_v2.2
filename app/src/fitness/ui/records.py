@@ -34,9 +34,14 @@ def build_records(services):
     def update_chart():
         series=next((s for s in services.trends.series(c.clock.today()-timedelta(days=365),c.clock.today()) if s['key']=='body_weight'),None)
         graph.controls=[build_chart(series,detail)] if series else [ft.Text('记录体重后，这里会显示变化趋势。')]
+    saved_text=weight.value
     async def save_weight(event):
+        nonlocal saved_text
         try:
-            if (weight.value or '').strip():c.save_today_weight(float(weight.value))
+            if weight.value==saved_text:return
+            if (weight.value or '').strip():
+                c.save_today_weight(float(weight.value))
+                saved_text=weight.value
             error.value='';update_chart();refresh(graph)
         except Exception as exc:error.value=str(exc)
         refresh(error)

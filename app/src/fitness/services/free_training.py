@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import uuid4
 from fitness.domain.models import Measurements
-from fitness.domain.free_training import should_save, validate_partial, validate_next_set
+from fitness.domain.free_training import should_save, validate_partial, validate_next_set, parse_measurements
 from fitness.domain.training import measurement_dict, measurement_from, elapsed
 from fitness.domain.training_time import daily_duration
 from fitness.services.plans import transaction
@@ -32,6 +32,8 @@ class FreeTrainingMixin:
             return self._snapshot(*self._load(identity))
 
     def _append_free_action(self,state,runtime):
+        runtime.pop('input_text',None)
+        runtime.pop('input_error',None)
         exercise=dict(id=str(uuid4()),name='',kind='weighted')
         slot=dict(id=str(uuid4()),exercise=exercise,legacy_index=len(state['exercises']))
         state['exercises'].append(exercise)
@@ -48,7 +50,9 @@ class FreeTrainingMixin:
         slot=self._slot(runtime) if runtime['current_slot_id'] else None
         previous=slot and self.db.execute('SELECT 1 FROM training_set_results WHERE session_id=? AND exercise_index=? LIMIT 1',
                                           (row['id'],slot['legacy_index'])).fetchone()
-        return replace(result,action_name=slot['exercise']['name'] if slot else '',can_inherit=bool(previous),
+        raw=runtime.get('input_text',{})
+        return replace(result,input_name=raw.get('name'),input_reps=raw.get('reps'),input_weight=raw.get('weight'),input_error=runtime.get('input_error'),
+                       notice='系统时间发生变化，计时已冻结至校时追平。' if self.clock.backward else result.notice,action_name=slot['exercise']['name'] if slot else '',can_inherit=bool(previous),
                        action_elapsed_ms=elapsed(runtime.get('action_elapsed_ms',0),runtime.get('action_started_ms'),self.clock.now_ms()),
                        daily_elapsed_ms=self.daily_training_ms())
 
@@ -86,12 +90,14 @@ class FreeTrainingMixin:
             raise ValueError('无效操作')
         def operation(row,state,runtime):
             self._collecting(state,runtime)
+            if runtime.get('input_error'):
+                raise ValueError(runtime['input_error'])
             value=measurement_from(runtime['draft'])
             validate_partial(value)
             if action=='next_set':
                 validate_next_set(value)
             if should_save(value):
-                if not self._slot(runtime)['exercise']['name'].strip():
+                if not runtime.get('input_text',{}).get('name',self._slot(runtime)['exercise']['name']).strip():
                     raise ValueError('请输入动作名称')
                 self._save_free_set(row,state,runtime,value)
             confirmation=runtime.pop('confirmation',None)
@@ -191,3 +197,25 @@ class FreeTrainingMixin:
                 self._store(row,state,runtime,revision)
         # An unsubmitted confirmation never completes a destructive transition on restart.
         return self.cancel_confirmation(identity)
+
+    def save_input_text(self,session_id,name,reps,weight):
+        with transaction(self.db):
+            row,state,runtime,revision=self._load(session_id)
+            self._collecting(state,runtime)
+            runtime['input_text']=dict(name=name,reps=reps,weight=weight)
+            runtime['input_error']=None
+            try:
+                runtime['draft']=measurement_dict(parse_measurements(reps,weight))
+            except ValueError as exc:
+                runtime['input_error']=str(exc)
+            slot=self._slot(runtime)
+            if name.strip():
+                slot['exercise']['name']=name.strip()
+                state['exercises'][slot['legacy_index']]['name']=name.strip()
+                self.db.execute('UPDATE py_set_meta SET exercise_name=? WHERE set_id IN (SELECT id FROM training_set_results WHERE session_id=? AND exercise_index=?)',(name.strip(),session_id,slot['legacy_index']))
+            return self._store(row,state,runtime,revision)
+
+    def command_result(self,session_id,command_id):
+        from fitness.domain.training import snapshot_from
+        row=self.db.execute('SELECT result_json FROM py_commands WHERE session_id=? AND command_id=?',(session_id,command_id)).fetchone()
+        return snapshot_from(json.loads(row[0])) if row else None

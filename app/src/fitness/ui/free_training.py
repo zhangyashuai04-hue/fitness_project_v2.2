@@ -12,27 +12,33 @@ class FreeTrainingController(TrainingController):
 
     def restore(self):
         self.snapshot=self.service.restore_free()
+        self.input_error=self.snapshot.input_error if self.snapshot else None
         return self.snapshot
+
+    def _text(self):
+        s=self.snapshot
+        return (s.input_name if s.input_name is not None else s.action_name,
+                s.input_reps if s.input_reps is not None else ('' if s.draft.reps is None else str(s.draft.reps)),
+                s.input_weight if s.input_weight is not None else ('' if s.draft.weight is None else str(s.draft.weight)))
 
     def rename_current(self,name):
         if self.pending: raise ValueError('请先重试上次操作')
-        self.snapshot=self.service.rename_current(self.snapshot.id,name)
+        _,reps,weight=self._text()
+        self.snapshot=self.service.save_input_text(self.snapshot.id,name,reps,weight)
+        self.input_error=self.snapshot.input_error
         return self.snapshot
 
     def update_inputs(self,weight,reps,duration=''):
         if self.pending: raise ValueError('请先重试上次操作')
-        try:
-            value=parse_measurements(reps,weight)
-            self.snapshot=self.service.save_draft(self.snapshot.id,value)
-            self.input_error=None
-        except Exception as exc:
-            self.input_error=str(exc)
-            raise
+        name,_,_=self._text()
+        self.snapshot=self.service.save_input_text(self.snapshot.id,name,reps,weight)
+        self.input_error=self.snapshot.input_error
+        if self.input_error: raise ValueError(self.input_error)
 
     @property
     def can_complete(self):
         s=self.snapshot
-        if not s or self.busy or self.input_error or s.status!='running' or not s.action_name:
+        if not s or self.busy or self.input_error or s.status!='running' or not self._text()[0].strip():
             return False
         try: validate_next_set(s.draft)
         except ValueError: return False
@@ -40,7 +46,11 @@ class FreeTrainingController(TrainingController):
 
     def advance(self,action):
         if self.input_error: raise ValueError(self.input_error)
-        return self._command(action,lambda revision,identity:self.service.advance(self.snapshot.id,action,revision,identity))
+        try:
+            return self._command(action,lambda revision,identity:self.service.advance(self.snapshot.id,action,revision,identity))
+        except ValueError:
+            self.pending=None
+            raise
 
     def begin_confirmation(self,action):
         if self.input_error: raise ValueError(self.input_error)
@@ -49,6 +59,12 @@ class FreeTrainingController(TrainingController):
         return self.snapshot
 
     def cancel_confirmation(self):
+        if self.pending:
+            saved=self.service.command_result(self.snapshot.id,self.pending[2])
+            self.pending=None
+            if saved:
+                self.snapshot=saved
+                return saved
         self.snapshot=self.service.cancel_confirmation(self.snapshot.id)
         return self.snapshot
 
@@ -139,9 +155,9 @@ class FreeTrainingView(ft.Column):
     def render(self):
         c=self.controller;s=c.snapshot
         self.error=ft.Text(c.input_error or s.notice or '',color=ft.Colors.ERROR)
-        self.name=ft.TextField(label='动作名称',value=s.action_name)
-        self.reps=ft.TextField(label='次数',value='' if s.draft.reps is None else str(s.draft.reps),keyboard_type=ft.KeyboardType.NUMBER,expand=True)
-        self.weight=ft.TextField(label='重量（kg）',value='' if s.draft.weight is None else f'{s.draft.weight:g}',keyboard_type=ft.KeyboardType.NUMBER,expand=True)
+        self.name=ft.TextField(label='动作名称',value=c._text()[0])
+        self.reps=ft.TextField(label='次数',value=c._text()[1],keyboard_type=ft.KeyboardType.NUMBER,expand=True)
+        self.weight=ft.TextField(label='重量（kg）',value=c._text()[2],keyboard_type=ft.KeyboardType.NUMBER,expand=True)
         async def inputs(event):
             try:
                 c.update_inputs(self.weight.value or '',self.reps.value or '')
