@@ -5,7 +5,8 @@ from datetime import datetime
 from uuid import uuid4
 from fitness.domain.models import Measurements
 from fitness.domain.free_training import should_save, validate_partial, validate_next_set
-from fitness.domain.training import measurement_dict, measurement_from
+from fitness.domain.training import measurement_dict, measurement_from, elapsed
+from fitness.domain.training_time import daily_duration
 from fitness.services.plans import transaction
 
 
@@ -21,7 +22,8 @@ class FreeTrainingMixin:
                        elapsedMs=0,exerciseIndex=0,setIndex=0,skipped=[])
             runtime=dict(version=2,free=True,slots=[],order=[],current_slot_id=None,set_index=0,
                          phase='collecting',draft=measurement_dict(Measurements()),set_elapsed_ms=0,
-                         set_started_ms=now,notice=None)
+                         set_started_ms=now,notice=None,intervals=[],active_started_ms=now,
+                         action_elapsed_ms=0,action_started_ms=now)
             self._append_free_action(state,runtime)
             # plan_id is unique but has no FK: private identity needs no visible plan/template.
             self.db.execute('INSERT INTO training_sessions VALUES (?,?,?,?,?,?,?)',
@@ -35,7 +37,8 @@ class FreeTrainingMixin:
         state['exercises'].append(exercise)
         runtime['slots'].append(slot)
         runtime['order'].append(slot['id'])
-        runtime.update(current_slot_id=slot['id'],set_index=0,phase='collecting',
+        runtime.update(action_elapsed_ms=0,action_started_ms=self.clock.now_ms() if state['status']=='running' else None,
+                       current_slot_id=slot['id'],set_index=0,phase='collecting',
                        draft=measurement_dict(Measurements()),set_elapsed_ms=0,
                        set_started_ms=self.clock.now_ms() if state['status']=='running' else None)
 
@@ -45,7 +48,9 @@ class FreeTrainingMixin:
         slot=self._slot(runtime) if runtime['current_slot_id'] else None
         previous=slot and self.db.execute('SELECT 1 FROM training_set_results WHERE session_id=? AND exercise_index=? LIMIT 1',
                                           (row['id'],slot['legacy_index'])).fetchone()
-        return replace(result,action_name=slot['exercise']['name'] if slot else '',can_inherit=bool(previous))
+        return replace(result,action_name=slot['exercise']['name'] if slot else '',can_inherit=bool(previous),
+                       action_elapsed_ms=elapsed(runtime.get('action_elapsed_ms',0),runtime.get('action_started_ms'),self.clock.now_ms()),
+                       daily_elapsed_ms=self.daily_training_ms())
 
     def rename_current(self,session_id,name):
         with transaction(self.db):
@@ -89,6 +94,13 @@ class FreeTrainingMixin:
                 if not self._slot(runtime)['exercise']['name'].strip():
                     raise ValueError('请输入动作名称')
                 self._save_free_set(row,state,runtime,value)
+            confirmation=runtime.pop('confirmation',None)
+            if confirmation and action != confirmation['action']:
+                raise ValueError('确认操作不匹配')
+            if confirmation and confirmation['status']=='running' and action!='end':
+                state['status']='running'
+                state['runningSince']=datetime.fromtimestamp(self.clock.now_ms()/1000).isoformat()
+                self._resume_free_clock(runtime)
             if action=='end':
                 self._finish(row,state,runtime)
             elif action=='next_action':
@@ -96,3 +108,86 @@ class FreeTrainingMixin:
             else:
                 self._new_set(state,runtime,session_id=row['id'])
         return self._command(session_id,expected_revision,command_id,operation)
+
+    def daily_training_ms(self):
+        total=0
+        now=self.clock.now_ms()
+        for row in self.db.execute('SELECT runtime_json FROM py_session_meta'):
+            runtime=json.loads(row[0])
+            intervals=list(runtime.get('intervals',[]))
+            started=runtime.get('active_started_ms')
+            if started is not None:
+                intervals.append((started,max(started,now)))
+            total+=daily_duration(intervals,self.clock.today())
+        return total
+
+    def _stop_free_clock(self,runtime):
+        if not runtime.get('free'): return
+        now=self.clock.now_ms()
+        started=runtime.get('active_started_ms')
+        if started is not None:
+            runtime.setdefault('intervals',[]).append([started,max(started,now)])
+        runtime['active_started_ms']=None
+        runtime['action_elapsed_ms']=elapsed(runtime.get('action_elapsed_ms',0),runtime.get('action_started_ms'),now)
+        runtime['action_started_ms']=None
+
+    def _resume_free_clock(self,runtime):
+        if not runtime.get('free'): return
+        runtime['active_started_ms']=self.clock.now_ms()
+        runtime['action_started_ms']=self.clock.now_ms()
+
+    def begin_confirmation(self,session_id,action):
+        if action not in ('end','next_action'):
+            raise ValueError('无效操作')
+        with transaction(self.db):
+            row,state,runtime,revision=self._load(session_id)
+            self._collecting(state,runtime)
+            if runtime.get('confirmation'):
+                return self._snapshot(row,state,runtime,revision)
+            runtime['confirmation']=dict(action=action,status=state['status'])
+            self._stop_set_clock(runtime)
+            self._stop_free_clock(runtime)
+            self._pause_total(state)
+            state['status']='paused'
+            return self._store(row,state,runtime,revision)
+
+    def cancel_confirmation(self,session_id):
+        with transaction(self.db):
+            row,state,runtime,revision=self._load(session_id)
+            confirmation=runtime.pop('confirmation',None)
+            if not confirmation:
+                return self._snapshot(row,state,runtime,revision)
+            if confirmation['status']=='running':
+                state['status']='running'
+                state['runningSince']=datetime.fromtimestamp(self.clock.now_ms()/1000).isoformat()
+                runtime['set_started_ms']=self.clock.now_ms()
+                self._resume_free_clock(runtime)
+            return self._store(row,state,runtime,revision)
+
+    def restore_free(self):
+        row=self.db.execute('SELECT id FROM training_sessions WHERE active_slot=1').fetchone()
+        if not row: return None
+        identity=row['id']
+        with transaction(self.db):
+            row,state,runtime,revision=self._load(identity)
+            if not runtime.get('free'):
+                now=self.clock.now_ms()
+                runtime.update(free=True,version=2,intervals=[],action_elapsed_ms=runtime['set_elapsed_ms'],
+                               action_started_ms=runtime['set_started_ms'],
+                               active_started_ms=int(datetime.fromisoformat(state['runningSince']).timestamp()*1000) if state.get('runningSince') else None)
+                slot=self._slot(runtime) if runtime['current_slot_id'] else None
+                if slot and slot['exercise']['kind']!='timed':
+                    previous=self.db.execute('SELECT MAX(set_index) FROM training_set_results WHERE session_id=? AND exercise_index=?',(identity,slot['legacy_index'])).fetchone()[0]
+                    if runtime['phase']=='awaiting_choice' or (previous is not None and runtime['set_index']<=previous):
+                        runtime.update(phase='collecting',set_index=previous+1 if previous is not None else runtime['set_index']+1,
+                                       draft=measurement_dict(Measurements()),set_elapsed_ms=0,set_started_ms=now if state['status']=='running' else None)
+                    slot['exercise']['kind']='weighted'
+                    state['exercises'][slot['legacy_index']]['kind']='weighted'
+                    runtime['order']=[slot['id']]
+                else:
+                    # Freeze old result labels/kinds before appending a new free action.
+                    self._append_free_action(state,runtime)
+                    runtime['notice']='旧计时动作已保留，新动作请填写名称、次数和重量。'
+                self._store(row,state,runtime,revision)
+        # An unsubmitted confirmation never completes a destructive transition on restart.
+        return self.cancel_confirmation(identity)

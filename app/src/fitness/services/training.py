@@ -151,6 +151,7 @@ class TrainingService(FreeTrainingMixin):
 
     def _finish(self, row, state, runtime):
         self._stop_set_clock(runtime)
+        self._stop_free_clock(runtime)
         self._pause_total(state)
         state['status'] = 'ended'
         runtime['phase'] = 'ended'
@@ -198,6 +199,7 @@ class TrainingService(FreeTrainingMixin):
             if state['status'] != 'running':
                 return self._snapshot(row, state, runtime, revision)
             self._stop_set_clock(runtime)
+            self._stop_free_clock(runtime)
             self._pause_total(state)
             state['status'] = 'paused'
             return self._store(row, state, runtime, revision)
@@ -207,6 +209,7 @@ class TrainingService(FreeTrainingMixin):
             row, state, runtime, revision = self._load(session_id)
             if state['status'] != 'paused':
                 return self._snapshot(row, state, runtime, revision)
+            self._resume_free_clock(runtime)
             state['status'] = 'running'
             state['runningSince'] = datetime.fromtimestamp(self.clock.now_ms() / 1000).isoformat()
             if runtime['phase'] == 'collecting' and runtime['current_slot_id']:
