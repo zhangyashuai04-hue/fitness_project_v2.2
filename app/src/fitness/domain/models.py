@@ -31,3 +31,8 @@ class Snapshot:
     draft: Measurements
     set_elapsed_ms: int
     notice: str | None
+
+    action_name: str = ""
+    action_elapsed_ms: int = 0
+    daily_elapsed_ms: int = 0
+    can_inherit: bool = False
