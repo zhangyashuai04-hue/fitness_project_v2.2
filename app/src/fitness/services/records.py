@@ -3,6 +3,7 @@ import json
 from datetime import timedelta
 from fitness.domain.models import Measurements
 from fitness.services.history import HistoryService
+from fitness.services.weight import day_bounds, FACTORS
 
 
 def format_set(value: Measurements) -> str:
@@ -31,6 +32,17 @@ class RecordsService:
                 m=row['measurements']
                 group['sets'].append(dict(reps=m.get('reps'),weight=m.get('weight'),duration_seconds=m.get('durationSeconds'),kind=row['exercise_kind']))
             output.append(dict(session_id=session['id'],status=json.loads(session['state'])['status'],actions=list(groups.values())))
+        start,end=day_bounds(day)
+        legacy={}
+        for row in self.db.execute("SELECT g.* FROM gym_sets g WHERE hidden=0 AND name!='Weight' AND created>=? AND created<? AND NOT EXISTS (SELECT 1 FROM training_set_results r WHERE r.gym_set_id=g.id) ORDER BY created,id",(start,end)):
+            kind='timed' if row['cardio'] else 'weighted'
+            key=(row['name'],kind,row['unit'])
+            group=legacy.setdefault(key,dict(slot_id=f"legacy:{row['id']}",name=row['name'],sets=[]))
+            group['sets'].append(dict(reps=None if kind=='timed' else row['reps'],
+                                     weight=None if kind=='timed' else row['weight']*FACTORS.get(row['unit'],1),
+                                     duration_seconds=row['duration']*60 if kind=='timed' else None,kind=kind))
+        if legacy:
+            output.append(dict(session_id='legacy:'+day.isoformat(),status='ended',actions=list(legacy.values())))
         return output
 
     def week_count(self,day):
