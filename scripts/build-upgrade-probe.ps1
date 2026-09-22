@@ -1,0 +1,31 @@
+param([ValidateSet("x86_64", "arm64-v8a")][string[]]$Architecture = @("arm64-v8a", "x86_64"))
+$ErrorActionPreference = "Stop"
+if ("arm64-v8a" -notin $Architecture) { throw "The current packaging plugin requires arm64-v8a as the primary Python dependency ABI." }
+$root = Split-Path $PSScriptRoot -Parent
+$env:PATH = "$root\scripts\tool-shims;$env:PATH"
+$env:ANDROID_HOME = 'D:\zys\myself\codex\fitness_project\research\toolchains\android-sdk'
+$env:JAVA_HOME = "$root\.cache\toolchains\java17\jdk-17.0.13+11"
+$env:FLET_CACHE_DIR = "$root\.cache\flet"
+$env:PUB_CACHE = "$root\.cache\pub"
+$env:GRADLE_USER_HOME = "$root\.cache\gradle"
+$env:PYTHONUTF8 = "1"
+$env:TEMP = "$root\.cache\tmp"
+$env:TMP = $env:TEMP
+Push-Location "$root\spike\upgrade_probe"
+try {
+    & "$root\.venv\Scripts\flet.exe" build apk --arch $Architecture --bundle-id com.presley.flexify.localflow --build-number 40704 --build-version 2.1.123 --android-signing-key-store D:\zys\myself\codex\fitness_project\.worktrees\local-flow\app\android\app\pr-testing-public.jks --android-signing-key-alias pr --android-signing-key-store-password pr-testing-public --android-signing-key-password pr-testing-public --yes --no-rich-output -vv *> "$root\research\upgrade\build.log"
+    $result = $LASTEXITCODE
+    if ($result -eq 0) { foreach ($abi in $Architecture) {
+        & "$root\.venv\Scripts\python.exe" "$root\scripts\verify-apk.py" "build\apk\fitness-upgrade-probe-$abi.apk"
+        if ($LASTEXITCODE -ne 0) { $result = $LASTEXITCODE }
+    }}
+} finally { Pop-Location }
+Get-Content "$root\research\upgrade\build.log" -Tail 18
+exit $result
+
+
+
+
+
+
+
