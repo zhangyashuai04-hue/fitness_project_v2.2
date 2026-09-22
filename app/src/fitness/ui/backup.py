@@ -38,5 +38,5 @@ def build_backup(service,on_restore):
             await confirm(root.page,'恢复本地备份','当前记录会先另存备份，再替换为所选文件中的记录。',restore)
         except Exception as exc:
             status.value=str(exc);refresh(status)
-    root.controls=[ft.Text('备份包含本地训练、体重和饮食记录，请自行妥善保存。'),ft.Row([ft.Button('导出备份',on_click=export),ft.Button('恢复备份',on_click=choose)],wrap=True),status]
+    root.controls=[ft.Text('备份包含本地训练、体重及旧版本保留数据，请妥善保存。'),ft.Row([ft.Button('导出备份',on_click=export),ft.Button('恢复备份',on_click=choose)],wrap=True),status]
     return root
