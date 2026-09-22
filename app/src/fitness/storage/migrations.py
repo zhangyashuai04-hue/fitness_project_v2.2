@@ -49,7 +49,7 @@ def _validate(db, version):
     if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
         raise ValueError('Database integrity check failed')
     tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    needed=OLD_TABLES | (NEW_TABLES if version==59 else set())
+    needed=OLD_TABLES | (NEW_TABLES if version>=59 else set())
     if not needed<=tables: raise ValueError('Required database tables are missing')
     for row in db.execute('SELECT state FROM training_sessions'):
         try: state=json.loads(row[0])
@@ -63,6 +63,14 @@ def migrate_v58_to_v59(db: sqlite3.Connection, now_ms: int) -> None:
     for sql in DDL: db.execute(sql)
     db.execute('INSERT INTO py_migrations VALUES(59,?)',(now_ms,))
     db.execute('PRAGMA user_version=59')
+
+def migrate_v59_to_v60(db: sqlite3.Connection, now_ms: int) -> None:
+    if db.execute('PRAGMA user_version').fetchone()[0] != 59:
+        raise ValueError('Expected schema v59')
+    # Runtime v2 lives in existing JSON; no destructive table rewrite.
+    db.execute('INSERT INTO py_migrations VALUES(60,?)', (now_ms,))
+    db.execute('PRAGMA user_version=60')
+
 
 def initialize(path: Path, backup_dir: Path) -> None:
     path=Path(path).resolve()
@@ -83,12 +91,14 @@ def initialize(path: Path, backup_dir: Path) -> None:
                 if statement.strip(): db.execute(statement)
             db.execute('PRAGMA user_version=58')
             version=58
-        if version not in {58,59}: raise ValueError(f'Unsupported database version: {version}')
+        if version not in {58,59,60}: raise ValueError(f'Unsupported database version: {version}')
         _validate(db,version)
+        if version < 60 and not fresh:
+            backup_database(path,Path(backup_dir)/f'v{version}-{uuid.uuid4().hex}.sqlite')
         if version==58:
-            if not fresh:
-                backup_database(path,Path(backup_dir)/f'v58-{uuid.uuid4().hex}.sqlite')
             migrate_v58_to_v59(db,time.time_ns()//1_000_000)
+        if version < 60:
+            migrate_v59_to_v60(db,time.time_ns()//1_000_000)
         db.commit()
     except BaseException:
         if db is not None: db.rollback()
@@ -98,4 +108,4 @@ def initialize(path: Path, backup_dir: Path) -> None:
         raise
     finally:
         if db is not None: db.close()
-    marker.write_text('59',encoding='ascii')
+    marker.write_text('60',encoding='ascii')

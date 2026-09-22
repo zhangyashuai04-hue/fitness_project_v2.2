@@ -21,7 +21,7 @@ def test_restore_legacy_and_export(database_path,legacy_db,tmp_path):
     s=BackupService(database_path,tmp_path/'backups')
     s.restore(legacy_db)
     db=open_database(database_path)
-    assert db.execute('PRAGMA user_version').fetchone()[0]==59
+    assert db.execute('PRAGMA user_version').fetchone()[0]==60
     assert db.execute('SELECT COUNT(*) FROM training_sessions').fetchone()[0]==2
     db.close()
     target=tmp_path/'export.sqlite'

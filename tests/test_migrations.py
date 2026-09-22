@@ -18,9 +18,9 @@ def test_migrate_and_repeat_keep_all_original_rows(legacy_db, tmp_path):
     before = {t:rows(legacy_db,t) for t in tables}
     migrations.initialize(legacy_db,tmp_path/'backups')
     migrations.initialize(legacy_db,tmp_path/'backups')
-    assert version(legacy_db)==59
+    assert version(legacy_db)==60
     assert {t:rows(legacy_db,t) for t in tables}==before
-    assert len(rows(legacy_db,'py_migrations'))==1
+    assert len(rows(legacy_db,'py_migrations'))==2
     assert len(list((tmp_path/'backups').glob('*.sqlite')))==1
 
 def test_backup_failure_leaves_old_database(legacy_db,tmp_path,monkeypatch):
@@ -46,7 +46,7 @@ def test_invalid_legacy_rejected_without_replacement(legacy_db,tmp_path,problem)
     if problem=='corrupt': legacy_db.write_bytes(b'not a database')
     else:
         with sqlite3.connect(legacy_db) as db:
-            if problem=='future': db.execute('PRAGMA user_version=60')
+            if problem=='future': db.execute('PRAGMA user_version=61')
             elif problem=='missing_table': db.execute('DROP TABLE nutrition_foods')
             elif problem=='bad_json': db.execute("UPDATE training_sessions SET state='{}'")
             else:
@@ -61,7 +61,7 @@ def test_invalid_legacy_rejected_without_replacement(legacy_db,tmp_path,problem)
 def test_fresh_install_and_missing_initialized_guard(tmp_path):
     path=tmp_path/'new'/'flexify.sqlite'
     migrations.initialize(path,tmp_path/'backups')
-    assert version(path)==59
+    assert version(path)==60
     assert not list((tmp_path/'backups').glob('*.sqlite'))
     path.unlink()
     with pytest.raises(FileNotFoundError): migrations.initialize(path,tmp_path/'backups')
