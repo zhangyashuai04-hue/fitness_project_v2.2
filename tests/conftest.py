@@ -30,3 +30,14 @@ class FakeClock:
 
 @pytest.fixture
 def clock(): return FakeClock()
+
+@pytest.fixture
+def free_service(tmp_path, clock):
+    from fitness.storage.migrations import initialize
+    from fitness.storage.database import open_database
+    from fitness.services.training import TrainingService
+    path=tmp_path/'free'/'flexify.sqlite'
+    initialize(path,tmp_path/'backups')
+    db=open_database(path)
+    yield TrainingService(db,clock)
+    db.close()

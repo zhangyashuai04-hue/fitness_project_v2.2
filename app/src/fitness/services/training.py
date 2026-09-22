@@ -9,7 +9,10 @@ from fitness.storage.legacy import adapt_legacy_session
 from fitness.services.plans import transaction
 
 
-class TrainingService:
+from fitness.services.free_training import FreeTrainingMixin
+
+
+class TrainingService(FreeTrainingMixin):
     def __init__(self, db, clock):
         self.db, self.clock = db, clock
 
@@ -28,7 +31,8 @@ class TrainingService:
         return row, state, runtime, revision
 
     def _snapshot(self, row, state, runtime, revision):
-        return snapshot(row['id'], state, runtime, revision, self.clock.now_ms())
+        result = snapshot(row['id'], state, runtime, revision, self.clock.now_ms())
+        return self._free_snapshot(result,row,state,runtime)
 
     def get(self, session_id):
         with transaction(self.db):
@@ -88,6 +92,9 @@ class TrainingService:
         with transaction(self.db):
             row, state, runtime, revision = self._load(session_id)
             self._collecting(state, runtime)
+            if runtime.get('free'):
+                from fitness.domain.free_training import validate_partial
+                validate_partial(measurements)
             # Empty and partial values are durable drafts; completion validates them.
             runtime['draft'] = measurement_dict(measurements)
             return self._store(row, state, runtime, revision)
@@ -214,6 +221,8 @@ class TrainingService:
             previous = self.db.execute('SELECT measurements FROM training_set_results WHERE session_id=? AND exercise_index=? ORDER BY set_index DESC LIMIT 1',
                                        (session_id, slot['legacy_index'])).fetchone()
             if previous is None:
+                if runtime.get('free'):
+                    return self._snapshot(row,state,runtime,revision)
                 raise ValueError('本动作还没有上一组数据')
             runtime['draft'] = json.loads(previous[0])
             return self._store(row, state, runtime, revision)
