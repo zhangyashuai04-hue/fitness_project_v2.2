@@ -8,3 +8,5 @@ deliverables/
 __pycache__/
 *.egg-info/
 install.log
+ios-ui-tests/*.xcodeproj/
+evidence/

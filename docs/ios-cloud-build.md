@@ -32,3 +32,11 @@
 
 Windows：`.venv\Scripts\python.exe -m pytest -q`。
 真正编译与 simctl 检查必须在 macOS 执行。Windows 通过测试仅证明 Python 逻辑和配置静态检查，不表示 iOS 构建通过。
+
+## 交互验证扩展
+
+新增苹果 XCTest 测试工具，只用于云端自动点击，应用业务仍为 Python。覆盖训练完整组/部分组、继承、切换确认及取消、暂停杀进程恢复、记录与今日体重；另外检查原生备份导入/导出选择器打开和取消。
+备份选择器通过不等于文件导出与恢复内容通过，完整备份往返仍需后续核查。
+结果见 interactions-summary.json、interactions.xcresult 和 interaction-attachments 中的截图/控件树。
+
+可选 reuse_build_run 输入之前成功的本仓库构建编号；脚本严格比较 app 与锁定依赖未变，并校验产物哈希。源代码变更时拒绝复用，应留空重新构建。旧产物过期时也需要重建。
