@@ -10,7 +10,7 @@ from fitness.ui.settings import build_settings
 
 
 async def main(page):
-    page.title='健身记录'
+    page.title='书呆子'
     page.theme=ft.Theme(color_scheme_seed=ft.Colors.TEAL)
     page.theme_mode=ft.ThemeMode.LIGHT
     page.padding=16
