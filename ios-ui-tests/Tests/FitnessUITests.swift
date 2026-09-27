@@ -139,6 +139,83 @@ final class FitnessUITests: XCTestCase {
         app.swipeUp()
         XCTAssertTrue((field("输入今日体重").value as? String ?? "").contains("75.2"))
         capture("saved-weight")
+        verifyBackupRoundTrip()
+    }
+
+    func chooseExportedBackup() {
+        tap("恢复备份")
+        let file = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "fitness-backup")).firstMatch
+        if !file.waitForExistence(timeout: 10) {
+            let browse = app.buttons.matching(NSPredicate(format: "label == %@", "Browse")).firstMatch
+            if browse.exists && browse.isHittable { browse.tap() }
+            let local = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "On My iPhone")).firstMatch
+            if local.waitForExistence(timeout: 10) && local.isHittable { local.tap() }
+        }
+        XCTAssertTrue(file.waitForExistence(timeout: 20), "Exported file missing: \(app.debugDescription)")
+        capture("backup-file-in-picker")
+        file.tap()
+        let open = app.buttons["Open"]
+        if open.exists && open.isHittable { open.tap() }
+        expectText("恢复本地备份")
+    }
+
+    func expectWeight(_ value: String) {
+        let weight = field("输入今日体重")
+        XCTAssertTrue(weight.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertEqual(weight.value as? String, value)
+    }
+
+    func verifyBackupRoundTrip() {
+        // Export known records (three sets + 75.2kg), then change both kinds of data.
+        tap("我的")
+        tap("导出备份")
+        let save = app.buttons["Save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 30), app.debugDescription)
+        capture("backup-save-destination")
+        save.tap()
+        expectText("备份导出完成")
+        capture("backup-exported")
+        tap("记录")
+        fill("输入今日体重", "76.3")
+        tap("训练")
+        tap("开始训练")
+        fill("动作名称", "AfterBackup")
+        fill("次数", "3")
+        fill("重量", "5")
+        tap("结束训练")
+        tap("确认")
+        expectText("AfterBackup")
+        expectWeight("76.3")
+        capture("modified-after-backup")
+
+        // Cancelling restore must keep the newer weight and extra training.
+        tap("我的")
+        chooseExportedBackup()
+        tap("取消")
+        tap("记录")
+        expectText("AfterBackup")
+        expectWeight("76.3")
+        capture("restore-cancel-preserves-data")
+
+        // Confirming must replace the newer data with the exported snapshot.
+        tap("我的")
+        chooseExportedBackup()
+        tap("确认")
+        expectText("10次 × 40kg")
+        expectText("8次 × —")
+        expectText("— × 20kg")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "AfterBackup")).firstMatch.exists)
+        expectWeight("75.2")
+        capture("backup-restored")
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(button("训练").waitForExistence(timeout: 45), app.debugDescription)
+        expectText("10次 × 40kg")
+        expectText("8次 × —")
+        expectText("— × 20kg")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "AfterBackup")).firstMatch.exists)
+        expectWeight("75.2")
+        capture("backup-restored-after-restart")
     }
 
     func testBackupPickersCanOpenAndCancel() throws {
