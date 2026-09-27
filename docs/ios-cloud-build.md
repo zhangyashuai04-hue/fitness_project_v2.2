@@ -40,3 +40,5 @@ Windows：`.venv\Scripts\python.exe -m pytest -q`。
 结果见 interactions-summary.json、interactions.xcresult 和 interaction-attachments 中的截图/控件树。
 
 可选 reuse_build_run 输入之前成功的本仓库构建编号；脚本严格比较 app 与锁定依赖未变，并校验产物哈希。源代码变更时拒绝复用，应留空重新构建。旧产物过期时也需要重建。
+
+首次交互运行发现 iOS 数字键盘不提供小数点及完成键，遮挡底部导航。已将 iOS 的体重、训练重量和次数输入改为标准键盘（可输入小数并提交关闭）；Android 保持数字键盘。此修复必须重新构建，不能复用之前安装包。

@@ -75,9 +75,10 @@ def duration(ms):
 
 
 class FreeTrainingView(ft.Column):
-    def __init__(self,controller):
+    def __init__(self,controller,platform=None):
         super().__init__(spacing=16,horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         self.controller=controller
+        self.platform=platform
         self.refresh_task=None
         self.choice_dialog=None
         self.render()
@@ -159,8 +160,10 @@ class FreeTrainingView(ft.Column):
         c=self.controller;s=c.snapshot
         self.error=ft.Text(c.input_error or s.notice or '',color=ft.Colors.ERROR)
         self.name=ft.TextField(label='动作名称',value=c._text()[0])
-        self.reps=ft.TextField(label='次数',value=c._text()[1],keyboard_type=ft.KeyboardType.NUMBER,expand=True)
-        self.weight=ft.TextField(label='重量（kg）',value=c._text()[2],keyboard_type=ft.KeyboardType.NUMBER,expand=True)
+        # iOS number pads omit both decimal and Done keys.
+        keyboard=ft.KeyboardType.TEXT if self.platform==ft.PagePlatform.IOS else ft.KeyboardType.NUMBER
+        self.reps=ft.TextField(label='次数',value=c._text()[1],keyboard_type=keyboard,expand=True)
+        self.weight=ft.TextField(label='重量（kg）',value=c._text()[2],keyboard_type=keyboard,expand=True)
         async def inputs(event):
             try:
                 c.update_inputs(self.weight.value or '',self.reps.value or '')

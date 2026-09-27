@@ -45,6 +45,7 @@ final class FitnessUITests: XCTestCase {
             element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
         }
         if !value.isEmpty { element.typeText(value) }
+        dismissKeyboard()
     }
     func expectText(_ text: String) {
         let element = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
@@ -54,10 +55,27 @@ final class FitnessUITests: XCTestCase {
         let item = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         item.name = name; item.lifetime = .keepAlways; add(item)
     }
-    func settleKeyboard() {
-        // Both controls are part of the product flow; re-render releases field focus.
-        tap("暂停")
-        tap("继续")
+    func dismissKeyboard() {
+        let done = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "Return", "return", "完成", "换行"])).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "No keyboard submit key: \(app.debugDescription)")
+        done.tap()
+        let hidden = NSPredicate { _, _ in !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: hidden, object: nil)], timeout: 10), .completed)
+    }
+    func cancelPicker(exporting: Bool = false) {
+        // The export picker can automatically enter On My iPhone. Go back to
+        // Browse before cancelling: the folder page has Save, not a Cancel button.
+        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "取消"])).firstMatch
+        let back = app.buttons["Browse"]
+        if exporting { XCTAssertTrue(app.buttons["Save"].waitForExistence(timeout: 30), app.debugDescription) }
+        let ready = NSPredicate { _, _ in (cancel.exists && cancel.isHittable) || (back.exists && back.isHittable) }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: nil)], timeout: 30), .completed)
+        if back.exists && back.isHittable { back.tap() }
+        let visible = NSPredicate { _, _ in cancel.exists && cancel.isHittable }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: visible, object: nil)], timeout: 15), .completed)
+        cancel.tap()
+        let dismissed = NSPredicate { _, _ in !cancel.exists && self.button("恢复备份").isHittable }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: dismissed, object: nil)], timeout: 15), .completed)
     }
 
     func testTrainingWeightAndRecovery() throws {
@@ -70,7 +88,6 @@ final class FitnessUITests: XCTestCase {
         fill("次数", "10")
         XCTAssertFalse(button("下一组数").isEnabled)
         fill("重量", "40")
-        settleKeyboard()
         XCTAssertTrue(button("下一组数").isEnabled)
         tap("下一组数")
         expectText("第 2 组")
@@ -79,7 +96,6 @@ final class FitnessUITests: XCTestCase {
         XCTAssertTrue((field("重量").value as? String ?? "").contains("40"))
         fill("次数", "8")
         fill("重量", "")
-        settleKeyboard()
         tap("下一动作")
         expectText("是否切换动作？")
         tap("取消")
@@ -99,6 +115,12 @@ final class FitnessUITests: XCTestCase {
         XCTAssertTrue((field("动作名称").value as? String ?? "").contains("Row"))
         XCTAssertTrue((field("重量").value as? String ?? "").contains("20"))
         XCTAssertTrue(button("继续").exists)
+        tap("继续")
+        let timer = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "本组时长")).firstMatch
+        let before = timer.label
+        let advancing = NSPredicate { _, _ in timer.label != before }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: advancing, object: nil)], timeout: 5), .completed)
+        tap("暂停")
         tap("结束训练")
         expectText("是否结束训练？")
         tap("确认")
@@ -115,19 +137,11 @@ final class FitnessUITests: XCTestCase {
     func testBackupPickersCanOpenAndCancel() throws {
         tap("我的")
         tap("导出备份")
-        // Native document pickers may live in the application or SpringBoard tree.
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let cancel = app.buttons["Cancel"]
-        let cnCancel = app.buttons["取消"]
-        let systemCancel = springboard.buttons["Cancel"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 15) || cnCancel.exists || systemCancel.exists, "Export picker did not open: \(app.debugDescription)")
-        capture("export-picker")
-        if cancel.exists { cancel.tap() } else if cnCancel.exists { cnCancel.tap() } else { systemCancel.tap() }
+        cancelPicker(exporting: true)
         expectText("已取消导出")
         tap("恢复备份")
-        XCTAssertTrue(cancel.waitForExistence(timeout: 15) || cnCancel.exists || systemCancel.exists, "Import picker did not open: \(app.debugDescription)")
-        capture("import-picker")
-        if cancel.exists { cancel.tap() } else if cnCancel.exists { cnCancel.tap() } else { systemCancel.tap() }
-        XCTAssertTrue(button("恢复备份").exists)
+        cancelPicker()
+        tap("记录")
+        expectText("本周训练次数")
     }
 }

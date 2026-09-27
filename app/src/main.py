@@ -49,10 +49,10 @@ async def main(page):
                 active=controller.restore()
                 async def start(event):
                     controller.start_free()
-                    body.controls=[FreeTrainingView(controller)]
+                    body.controls=[FreeTrainingView(controller,platform=page.platform)]
                     page.update()
                 async def resume(event):
-                    body.controls=[FreeTrainingView(controller)]
+                    body.controls=[FreeTrainingView(controller,platform=page.platform)]
                     page.update()
                 control=ft.Container(content=ft.Column([
                     ft.Text('按自己的节奏训练',size=24,weight=ft.FontWeight.BOLD),
@@ -61,7 +61,7 @@ async def main(page):
                 ],horizontal_alignment=ft.CrossAxisAlignment.CENTER,spacing=24),padding=ft.Padding.symmetric(vertical=80),alignment=ft.Alignment.CENTER)
             elif destination=='records':
                 from fitness.ui.records import build_records
-                control=build_records(services)
+                control=build_records(services,platform=page.platform)
             else:
                 control=build_settings(page,build_backup(backup_service,restore))
             page.navigation_bar.selected_index=['records','training','settings'].index(destination)

@@ -11,6 +11,22 @@ import zipfile
 from pathlib import Path
 
 
+def validate_run(run, repo):
+    if (run["conclusion"] != "success"
+            or run["head_repository"]["full_name"] != repo
+            or run["path"] != ".github/workflows/ios-simulator.yml"
+            or run["event"] != "workflow_dispatch"):
+        raise ValueError("Expected a successful manual iOS simulator workflow from this repository")
+
+
+def select_artifact(run, artifacts):
+    expected = f"ios-simulator-{run['id']}-{run['run_attempt']}"
+    choices = [a for a in artifacts if a["name"] == expected and not a["expired"]]
+    if len(choices) != 1:
+        raise ValueError("Expected exactly one unexpired artifact for the current run attempt")
+    return choices[0]
+
+
 def main():
     repo = os.environ["GITHUB_REPOSITORY"]
     run_id = os.environ["REUSE_RUN"]
@@ -22,15 +38,11 @@ def main():
         with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers), timeout=60) as response:
             return json.load(response)
     run = get("/actions/runs/" + run_id)
-    if run["conclusion"] != "success" or run["head_repository"]["full_name"] != repo:
-        raise ValueError("Only successful builds from this repository may be reused")
+    validate_run(run, repo)
     sha = run["head_sha"]
     subprocess.run(["git", "diff", "--exit-code", sha, "HEAD", "--", "app", "requirements-build.lock.txt"], check=True)
     artifacts = get("/actions/runs/" + run_id + "/artifacts")["artifacts"]
-    choices = [a for a in artifacts if a["name"].startswith("ios-simulator-") and not a["expired"]]
-    if len(choices) != 1:
-        raise ValueError("Expected one unexpired simulator artifact")
-    artifact = choices[0]
+    artifact = select_artifact(run, artifacts)
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, *args, **kwargs): return None
     try:
