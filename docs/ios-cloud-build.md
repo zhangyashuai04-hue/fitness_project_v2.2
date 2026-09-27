@@ -5,7 +5,7 @@
 ## 启动
 
 工作流文件需要先合并到仓库默认分支 `codex/v22-free-training`，GitHub 才会显示手动入口。
-在仓库 Actions → iOS Simulator Check → Run workflow 中选择待测试分支并运行。
+在仓库 Actions → iOS Build and Test → Run workflow 中选择待测试分支并运行。
 只有 workflow_dispatch，不会因 push 或 PR 自动运行。标准 macos-26 运行器，60分钟超时，产物保留7天。
 
 ## 输出与判读
@@ -72,3 +72,7 @@ Windows：`.venv\Scripts\python.exe -m pytest -q`。
 本次验证针对模拟器中的合成训练/体重数据，不代表已经完成实体 iPhone 的安装，也不代表已验证所有历史备份格式的 iOS 文件导入。实体 iPhone 16、签名与安装仍是后续任务。
 
 证据归档到 deliverables/ios-cloud-36333592944；下载 ZIP 的 SHA256 已校验为 e08fdfb1562740a1f468d78861ba2bde90995af5eacef3eebe80fe7688cff130。云端产物保留7天。
+
+## 真机构建入口
+
+工作流新增 target 选项，默认 simulator 保留上述模拟器验证；device-unsigned 生成供重新签名的真机 IPA 与 Xcode 归档。后者不运行模拟器测试，也不自动签名或安装。参见 [真机安装步骤](ios-device-install.md)。
