@@ -61,6 +61,8 @@ final class FitnessUITests: XCTestCase {
         item.name = name; item.lifetime = .keepAlways; add(item)
     }
     func dismissKeyboard() {
+        let introduction = app.otherElements["UIContinuousPathIntroductionView"]
+        if introduction.exists { introduction.buttons["Continue"].tap() }
         let done = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "done", "Return", "return", "完成", "换行"])).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10), "No keyboard submit key: \(app.debugDescription)")
         done.tap()
