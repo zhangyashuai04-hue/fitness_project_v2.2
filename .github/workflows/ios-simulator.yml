@@ -1,10 +1,25 @@
-name: iOS Simulator Check
+name: iOS Build and Test
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target (device package still requires signing)"
+        required: true
+        default: simulator
+        type: choice
+        options:
+          - simulator
+          - device-unsigned
+      reuse_build_run:
+        description: "Optional built-and-launched run ID with identical app sources"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ios-simulator-${{ github.ref }}
@@ -12,6 +27,7 @@ concurrency:
 
 jobs:
   build-and-launch:
+    if: inputs.target != 'device-unsigned'
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -24,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -41,7 +58,14 @@ jobs:
         run: |
           set -o pipefail
           .venv/bin/python -m pytest -q --junitxml=evidence/tests.xml 2>&1 | tee evidence/tests.log
+      - name: Reuse verified simulator build
+        if: inputs.reuse_build_run != ''
+        env:
+          REUSE_RUN: ${{ inputs.reuse_build_run }}
+          GH_TOKEN: ${{ github.token }}
+        run: .venv/bin/python scripts/reuse-ios-build.py
       - name: Build unsigned simulator app
+        if: inputs.reuse_build_run == ''
         run: |
           set -o pipefail
           cd app
@@ -51,14 +75,89 @@ jobs:
           test -d app/build/ios-simulator
           tar -czf evidence/fitness-ios-simulator.tar.gz -C app/build ios-simulator
       - name: Install and launch on simulator
+        env:
+          KEEP_SIMULATOR_BOOTED: "1"
         run: |
           set -o pipefail
           .venv/bin/python scripts/ios-simulator-smoke.py app/build/ios-simulator evidence 2>&1 | tee evidence/smoke.log
+      - name: Native iOS interaction tests
+        run: |
+          set -o pipefail
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate --spec ios-ui-tests/project.yml
+          DEVICE=$(.venv/bin/python -c 'import json; print(json.load(open("evidence/result.json"))["device"])')
+          xcodebuild test -project ios-ui-tests/FitnessUIProbe.xcodeproj -scheme FitnessUIProbe -destination "platform=iOS Simulator,id=$DEVICE" -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -resultBundlePath evidence/interactions.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee evidence/interactions.log
+      - name: Export interaction results
+        if: always()
+        run: |
+          if [ -d evidence/interactions.xcresult ]; then
+            xcrun xcresulttool get test-results summary --path evidence/interactions.xcresult > evidence/interactions-summary.json
+            xcrun xcresulttool export attachments --path evidence/interactions.xcresult --output-path evidence/interaction-attachments
+          fi
+      - name: Shut down simulator
+        if: always()
+        run: |
+          if [ -f evidence/result.json ]; then
+            DEVICE=$(.venv/bin/python -c 'import json; print(json.load(open("evidence/result.json"))["device"])')
+            xcrun simctl shutdown "$DEVICE" || true
+          fi
       - name: Upload build evidence (also on failure)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 7
+
+  build-device:
+    if: inputs.target == 'device-unsigned'
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      REUSE_RUN: ${{ inputs.reuse_build_run }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record device build toolchain
+        run: |
+          mkdir -p evidence
+          test -z "$REUSE_RUN" || { echo "Simulator build reuse is not supported for device packages"; exit 1; }
+          { sw_vers; uname -m; xcodebuild -version; python --version; git rev-parse HEAD; } | tee evidence/toolchain.txt
+      - name: Install pinned dependencies
+        run: |
+          set -o pipefail
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-build.lock.txt 2>&1 | tee evidence/dependencies.log
+      - name: Python regression tests
+        run: |
+          set -o pipefail
+          .venv/bin/python -m pytest -q --junitxml=evidence/tests.xml 2>&1 | tee evidence/tests.log
+      - name: Build unsigned device archive
+        run: |
+          set -o pipefail
+          cd app
+          ../.venv/bin/flet build ipa --bundle-id io.github.zhangyashuai04hue.fitness --build-version 2.2.0 --build-number "$GITHUB_RUN_NUMBER" --yes --no-rich-output -vv 2>&1 | tee ../evidence/build.log
+      - name: Package for later signing and verify device architecture
+        run: |
+          set -o pipefail
+          .venv/bin/python scripts/package-ios-device.py app/build/ipa evidence/fitness-v2.2-ios-unsigned.ipa 2>&1 | tee evidence/package.log
+          tar -czf evidence/fitness-ios-xcarchive.tar.gz -C app/build ipa
+          cp docs/ios-device-install.md evidence/INSTALL.md
+      - name: Upload device build evidence (also on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-device-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/
           if-no-files-found: warn
           retention-days: 7

@@ -18,7 +18,7 @@ class RecordsController:
         if self.weight.read(day)!=value: self.weight.save(day,value)
 
 
-def build_records(services):
+def build_records(services, platform=None):
     c=RecordsController(services.records,services.weight,services.records.clock)
     root=ft.Column(spacing=16,horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     history=ft.Column(spacing=12,horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
@@ -27,7 +27,9 @@ def build_records(services):
     error=ft.Text(color=ft.Colors.ERROR)
     today=c.clock.today()
     current=c.weight.read(today)
-    weight=ft.TextField(label='输入今日体重（kg）',value='' if current is None else f'{current:g}',keyboard_type=ft.KeyboardType.NUMBER)
+    # Flet NUMBER has no decimal or Done key on iOS; use the standard keyboard.
+    keyboard=ft.KeyboardType.TEXT if platform==ft.PagePlatform.IOS else ft.KeyboardType.NUMBER
+    weight=ft.TextField(label='输入今日体重（kg）',value='' if current is None else f'{current:g}',keyboard_type=keyboard)
     async def detail(point):
         async def close(event):root.page.pop_dialog()
         root.page.show_dialog(ft.AlertDialog(title=ft.Text(point['day']),content=ft.Text(f"体重 {point['value']:g} kg"),actions=[ft.TextButton('关闭',on_click=close)]))
