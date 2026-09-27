@@ -1,0 +1,64 @@
+name: iOS Simulator Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-simulator-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-launch:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Record toolchain
+        run: |
+          mkdir -p evidence
+          { sw_vers; uname -m; xcodebuild -version; python --version; } | tee evidence/toolchain.txt
+          xcrun simctl list devices available --json > evidence/devices.json
+      - name: Install pinned dependencies
+        run: |
+          set -o pipefail
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-build.lock.txt 2>&1 | tee evidence/dependencies.log
+      - name: Python regression tests
+        run: |
+          set -o pipefail
+          .venv/bin/python -m pytest -q --junitxml=evidence/tests.xml 2>&1 | tee evidence/tests.log
+      - name: Build unsigned simulator app
+        run: |
+          set -o pipefail
+          cd app
+          ../.venv/bin/flet build ios-simulator --bundle-id com.example.fitness.iosprobe --build-version 2.2.0 --build-number "$GITHUB_RUN_NUMBER" --yes --no-rich-output -vv 2>&1 | tee ../evidence/build.log
+      - name: Archive simulator app
+        run: |
+          test -d app/build/ios-simulator
+          tar -czf evidence/fitness-ios-simulator.tar.gz -C app/build ios-simulator
+      - name: Install and launch on simulator
+        run: |
+          set -o pipefail
+          .venv/bin/python scripts/ios-simulator-smoke.py app/build/ios-simulator evidence 2>&1 | tee evidence/smoke.log
+      - name: Upload build evidence (also on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 7
