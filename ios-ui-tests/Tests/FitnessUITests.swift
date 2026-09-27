@@ -41,6 +41,11 @@ final class FitnessUITests: XCTestCase {
         let element = field(title)
         XCTAssertTrue(element.waitForExistence(timeout: 15), "Missing field \(title): \(app.debugDescription)")
         element.tap()
+        // iOS shows QuickPath onboarding the first time its text keyboard opens.
+        let introduction = app.otherElements["UIContinuousPathIntroductionView"]
+        if introduction.waitForExistence(timeout: 2) {
+            introduction.buttons["Continue"].tap()
+        }
         if let current = element.value as? String, !current.isEmpty, current != title {
             element.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
         }
@@ -56,7 +61,7 @@ final class FitnessUITests: XCTestCase {
         item.name = name; item.lifetime = .keepAlways; add(item)
     }
     func dismissKeyboard() {
-        let done = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "Return", "return", "完成", "换行"])).firstMatch
+        let done = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "done", "Return", "return", "完成", "换行"])).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10), "No keyboard submit key: \(app.debugDescription)")
         done.tap()
         let hidden = NSPredicate { _, _ in !self.app.keyboards.firstMatch.exists }

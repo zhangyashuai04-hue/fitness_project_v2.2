@@ -1,4 +1,4 @@
-"""Reuse a successful simulator artifact only when app sources match exactly."""
+"""Reuse a built and launched simulator artifact when app sources match exactly."""
 import hashlib
 import io
 import json
@@ -11,12 +11,20 @@ import zipfile
 from pathlib import Path
 
 
-def validate_run(run, repo):
-    if (run["conclusion"] != "success"
+def validate_run(run, repo, jobs):
+    if (run["status"] != "completed" or run["conclusion"] not in ("success", "failure")
             or run["head_repository"]["full_name"] != repo
             or run["path"] != ".github/workflows/ios-simulator.yml"
             or run["event"] != "workflow_dispatch"):
-        raise ValueError("Expected a successful manual iOS simulator workflow from this repository")
+        raise ValueError("Expected a completed manual iOS simulator workflow from this repository")
+
+    candidates = [job for job in jobs if job["name"] == "build-and-launch"]
+    if len(candidates) != 1:
+        raise ValueError("Expected exactly one build job in this run attempt")
+    passed = {step["name"] for step in candidates[0]["steps"] if step["conclusion"] == "success"}
+    if (not {"Archive simulator app", "Install and launch on simulator"} <= passed
+            or not {"Build unsigned simulator app", "Reuse verified simulator build"} & passed):
+        raise ValueError("Build, archive and simulator launch must have succeeded")
 
 
 def select_artifact(run, artifacts):
@@ -38,7 +46,8 @@ def main():
         with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers), timeout=60) as response:
             return json.load(response)
     run = get("/actions/runs/" + run_id)
-    validate_run(run, repo)
+    jobs = get(f"/actions/runs/{run_id}/attempts/{run['run_attempt']}/jobs")["jobs"]
+    validate_run(run, repo, jobs)
     sha = run["head_sha"]
     subprocess.run(["git", "diff", "--exit-code", sha, "HEAD", "--", "app", "requirements-build.lock.txt"], check=True)
     artifacts = get("/actions/runs/" + run_id + "/artifacts")["artifacts"]
