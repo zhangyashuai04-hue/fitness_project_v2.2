@@ -71,4 +71,23 @@ def build_records(services, platform=None):
     root.controls=[ft.Row([ft.Text(today.isoformat(),size=20),ft.Text(f'本周训练次数：{c.records.week_count(today)}')],wrap=True,alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                    card('训练记录',heading,ft.GestureDetector(content=history,on_horizontal_drag_end=swipe),ft.Row([ft.TextButton('← 前一天',on_click=previous),ft.TextButton('后一天 →',on_click=following)],alignment=ft.MainAxisAlignment.SPACE_BETWEEN)),
                    card('体重',weight,error,graph)]
+    if platform==ft.PagePlatform.IOS:
+        # Keep the exact weight controls alive when entering and leaving details.
+        overview=list(root.controls)
+        dates=ft.Column(spacing=8,horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+        async def back(event):
+            root.controls=overview
+            refresh(root)
+        def open_day(day):
+            async def clicked(event):
+                c.select_day(day)
+                show_day()
+                root.controls=[ft.TextButton('← 返回日期列表',on_click=back),heading,history]
+                refresh(root)
+            return clicked
+        dates.controls=[ft.TextButton(day.isoformat(),on_click=open_day(day)) for day in c.records.training_days()]
+        if not dates.controls:
+            dates.controls=[ft.Text('还没有训练记录，完成训练后会在这里显示日期。')]
+        overview[1]=card('训练记录',dates)
+        root.controls=overview
     return root

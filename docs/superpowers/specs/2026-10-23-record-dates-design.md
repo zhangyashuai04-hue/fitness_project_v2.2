@@ -1,0 +1,3 @@
+# iOS training date navigation
+Approved scope: show only dates containing saved training, descending and unique. Tap opens a separate daily detail screen; back returns to dates. Multiple sessions remain separate. Weight entry, chart, database and history read-only behavior remain unchanged. Only iOS is built.
+Approach: reuse RecordsService.day_sessions and existing set rendering; add read-only date projection supporting Python results and legacy gym_sets. Reuse ios-simulator.yml device-unsigned workflow. A calendar would add empty dates against the requested scope; inline expansion would not provide the requested detail page.
