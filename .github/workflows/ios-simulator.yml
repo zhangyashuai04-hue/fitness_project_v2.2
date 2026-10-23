@@ -54,6 +54,14 @@ jobs:
           set -o pipefail
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements-build.lock.txt 2>&1 | tee evidence/dependencies.log
+      - name: Align JNI runtime with generated plugin bindings
+        run: |
+          # Flet's template pins 1.0.0, but current plugin bindings require 1.1.
+          cat >> app/pyproject.toml <<'EOF'
+
+          [tool.flet.flutter.pubspec.dependency_overrides]
+          jni = "1.1.0"
+          EOF
       - name: Python regression tests
         run: |
           set -o pipefail
@@ -138,6 +146,14 @@ jobs:
           set -o pipefail
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements-build.lock.txt 2>&1 | tee evidence/dependencies.log
+      - name: Align JNI runtime with generated plugin bindings
+        run: |
+          # Flet's template pins 1.0.0, but current plugin bindings require 1.1.
+          cat >> app/pyproject.toml <<'EOF'
+
+          [tool.flet.flutter.pubspec.dependency_overrides]
+          jni = "1.1.0"
+          EOF
       - name: Python regression tests
         run: |
           set -o pipefail
