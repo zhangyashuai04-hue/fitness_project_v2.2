@@ -1,6 +1,6 @@
 """Read-only projections. Saved result JSON, not legacy zero defaults, is authoritative."""
 import json
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from fitness.domain.models import Measurements
 from fitness.services.history import HistoryService
 from fitness.services.weight import day_bounds, FACTORS
@@ -18,6 +18,14 @@ class RecordsService:
     def __init__(self,db,clock):
         self.db,self.clock=db,clock
         self.history=HistoryService(db,clock)
+
+    def training_days(self):
+        """Dates with saved sets, matching the daily projection without writes."""
+        days={date.fromisoformat(row[0]) for row in self.db.execute(
+            'SELECT DISTINCT r.local_date FROM training_set_results r JOIN training_sessions s ON s.id=r.session_id')}
+        for row in self.db.execute("SELECT DISTINCT g.created FROM gym_sets g WHERE g.hidden=0 AND g.name!='Weight' AND NOT EXISTS (SELECT 1 FROM training_set_results r WHERE r.gym_set_id=g.id)"):
+            days.add(datetime.fromtimestamp(row[0]).date())
+        return sorted(days,reverse=True)
 
     def day_sessions(self,day):
         output=[]

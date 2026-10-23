@@ -1,5 +1,6 @@
 """Install a simulator build and collect launch evidence. No signing or user data."""
 import json
+import os
 import plistlib
 import re
 import subprocess
@@ -45,6 +46,7 @@ def main(build_dir, evidence_dir):
     payload = json.loads(run("xcrun", "simctl", "list", "devices", "available", "--json").stdout)
     device = choose_device(payload)
     print(f"Selected simulator {device}; app {app}; bundle {bundle}", flush=True)
+    succeeded = False
     try:
         # A selected simulator can already be booted. bootstatus is authoritative.
         run("xcrun", "simctl", "boot", device, check=False)
@@ -65,13 +67,15 @@ def main(build_dir, evidence_dir):
         (evidence / "result.json").write_text(json.dumps({"bundle": bundle, "device": device,
             "alive_after_seconds": 20, "visual_review_required": True,
             "note": "Process liveness is not proof that Python startup or UI is correct"}, indent=2), encoding="utf-8")
+        succeeded = True
         print("Process survived 20 seconds. Review launch.png for the records page; interactions and physical iPhone are not verified.")
     finally:
         try:
             log = run("xcrun", "simctl", "spawn", device, "log", "show", "--last", "3m", "--style", "compact", "--predicate", 'process == "Runner"', check=False)
             (evidence / "simulator.log").write_text(log.stdout + log.stderr, encoding="utf-8")
         finally:
-            run("xcrun", "simctl", "shutdown", device, check=False)
+            if not succeeded or os.environ.get("KEEP_SIMULATOR_BOOTED") != "1":
+                run("xcrun", "simctl", "shutdown", device, check=False)
 
 
 if __name__ == "__main__":

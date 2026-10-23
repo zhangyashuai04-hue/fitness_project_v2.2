@@ -5,7 +5,7 @@
 ## 启动
 
 工作流文件需要先合并到仓库默认分支 `codex/v22-free-training`，GitHub 才会显示手动入口。
-在仓库 Actions → iOS Simulator Check → Run workflow 中选择待测试分支并运行。
+在仓库 Actions → iOS Build and Test → Run workflow 中选择待测试分支并运行。
 只有 workflow_dispatch，不会因 push 或 PR 自动运行。标准 macos-26 运行器，60分钟超时，产物保留7天。
 
 ## 输出与判读
@@ -32,3 +32,47 @@
 
 Windows：`.venv\Scripts\python.exe -m pytest -q`。
 真正编译与 simctl 检查必须在 macOS 执行。Windows 通过测试仅证明 Python 逻辑和配置静态检查，不表示 iOS 构建通过。
+
+## 交互验证扩展
+
+新增苹果 XCTest 测试工具，只用于云端自动点击，应用业务仍为 Python。覆盖训练完整组/部分组、继承、切换确认及取消、暂停杀进程恢复、记录与今日体重；另外检查原生备份导入/导出选择器打开和取消，以及实际导出、取消恢复、确认恢复和重启后的数据一致性。
+结果见 interactions-summary.json、interactions.xcresult 和 interaction-attachments 中的截图/控件树。
+
+可选 reuse_build_run 输入本仓库构建编号；必须来自指定手动工作流，且该次尝试的构建、归档与启动步骤全部成功。后续交互测试失败时仍可复用已构建的包，但不代表交互测试通过。脚本严格比较 app 与锁定依赖未变，匹配准确产物名并校验哈希。源代码变更时拒绝复用，应留空重新构建。旧产物过期时也需要重建。
+
+首次交互运行发现 iOS 数字键盘不提供小数点及完成键，遮挡底部导航。已将 iOS 的体重、训练重量和次数输入改为标准键盘（可输入小数并提交关闭）；Android 保持数字键盘。此修复必须重新构建，不能复用之前安装包。
+
+## 2026-09-28 交互验证结果
+
+通过的云端运行：https://github.com/zhangyashuai04-hue/fitness_project_v2.2/actions/runs/36332350911
+
+- 测试提交：0461a19；复用安装包来自运行 36330987034（应用源码提交 adff4b9，与测试提交中的 app 和锁定依赖一致）。
+- 环境：macOS 26.6.2 / Xcode 26.6 / Python 3.12.10；iPhone Air 模拟器，iOS 26.5，arm64。
+- Python 回归：175 通过。XCTest：2 通过、0 失败、0 跳过。
+- 训练流程实际通过：输入动作/次数/重量，关闭键盘，下一组，继承上一组，切换确认及取消，只填次数或重量保存，暂停后杀进程再恢复草稿，继续计时，结束确认，查看记录。
+- 体重实际通过：输入 75.2，提交保存，重启后仍显示 75.2，趋势图显示该点。
+- 备份入口实际通过：系统导出与导入选择器打开、取消并返回应用。
+- 已人工检查 paused-draft、recorded-partial-sets、saved-weight 截图：Squat 两组分别为 10次×40kg、8次×—；Row 一组为 —×20kg；体重 75.2。
+
+当时尚未验证：备份文件完整导出/恢复往返（已在下方后续验证中通过）、实体 iPhone 16 安装与运行、签名/TestFlight。模拟器 .app 包不能直接安装到 iPhone。
+
+产物保留7天。运行页提供安装包、截图、控件树与 XCTest 报告；本机亦已校验哈希并归档到 deliverables/ios-cloud-36332350911。
+
+## 2026-09-28 完整备份往返验证结果
+
+通过的云端运行：https://github.com/zhangyashuai04-hue/fitness_project_v2.2/actions/runs/36333592944
+
+- 测试提交：2453987f8817c43c732cee0c1613b1fcd7e199db。应用源码未变，复用运行 36332350911 的已启动模拟器包，并通过源码与产物哈希检查。
+- 环境：iPhone Air 模拟器 / iOS 26.5 / arm64；Python 回归 175 通过，XCTest 2 通过、0 失败、0 跳过。
+- 实际通过原生文件选择器保存 fitness-backup.sqlite，应用显示“备份导出完成”。备份内容为 Squat 两组（10次×40kg、8次×—）、Row 一组（—×20kg），今日体重 75.2kg。
+- 导出后，将体重改为 76.3kg，新增 AfterBackup 一组（3次×5kg）。选择备份并取消恢复后，这些新数据仍保留。
+- 再次选择同一备份并确认恢复后，AfterBackup 记录消失，原来的三组数据与 75.2kg 体重恢复；终止并重新启动应用后，恢复结果仍然一致。
+- 已检查 backup-exported、modified-after-backup、restore-cancel-preserves-data、backup-restored-after-restart 截图，与测试断言一致。
+
+本次验证针对模拟器中的合成训练/体重数据，不代表已经完成实体 iPhone 的安装，也不代表已验证所有历史备份格式的 iOS 文件导入。实体 iPhone 16、签名与安装仍是后续任务。
+
+证据归档到 deliverables/ios-cloud-36333592944；下载 ZIP 的 SHA256 已校验为 e08fdfb1562740a1f468d78861ba2bde90995af5eacef3eebe80fe7688cff130。云端产物保留7天。
+
+## 真机构建入口
+
+工作流新增 target 选项，默认 simulator 保留上述模拟器验证；device-unsigned 生成供重新签名的真机 IPA 与 Xcode 归档。后者不运行模拟器测试，也不自动签名或安装。参见 [真机安装步骤](ios-device-install.md)。
